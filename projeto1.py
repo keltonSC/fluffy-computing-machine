@@ -1,73 +1,67 @@
 import pandas as pd
 import streamlit as st
-import matplotlib.pyplot as plt
 
-# Estilização personalizada
-page_bg_img = '''
+# Estilização moderna
+st.markdown('''
 <style>
 body {
-background-image: url("https://images.unsplash.com/photo-1568605114967-8130f3a36994");
-background-size: cover;
-background-position: center;
-background-repeat: no-repeat;
-background-attachment: fixed;
-color: #fff;
+    background-color: #f8f9fa;
+    font-family: 'Segoe UI', sans-serif;
 }
 
 [data-testid="stAppViewContainer"] > .main {
-background: rgba(0, 0, 0, 0.6);
-padding: 2rem;
-border-radius: 10px;
+    padding: 2rem;
 }
 
-.stSelectbox, .stSlider, .stTextInput, .stMultiSelect {
-background-color: white !important;
-color: black !important;
+h1, h2, h3, h4 {
+    color: #0d47a1;
 }
 </style>
-'''
-st.markdown(page_bg_img, unsafe_allow_html=True)
+''', unsafe_allow_html=True)
 
-# Carrega a planilha
-df = pd.read_excel("empreendimentosfortaleza.xlsx", usecols=[
-    "Nome do Empreendimento", "Construtora", "Status", "Segmento",
-    "VGV Médio", "Endereço", "Bairro/Cidade", "Atualização google earth "
-])
-df.columns = ["nome", "construtora", "status", "segmento", "vgv", "endereco", "bairro", "link"]
+# Carregamento com cache
+@st.cache_data
+def carregar_dados():
+    df = pd.read_excel("empreendimentosfortaleza.xlsx", usecols=[
+        "Nome do Empreendimento", "Construtora", "Status", "Segmento",
+        "VGV Médio", "Endereço", "Bairro/Cidade", "Atualização google earth "
+    ])
+    df.columns = ["nome", "construtora", "status", "segmento", "vgv", "endereco", "bairro", "link"]
 
-# ✅ Correção do VGV com tratamento condicional
-if df["vgv"].dtype == "object":
-    df["vgv"] = (
-        df["vgv"].astype(str)
-        .str.replace("R$", "", regex=False)
-        .str.replace(".", "", regex=False)   # remove milhar
-        .str.replace(",", ".", regex=False)  # converte decimal
-        .str.strip()
-    )
+    if df["vgv"].dtype == "object":
+        df["vgv"] = (
+            df["vgv"].astype(str)
+            .str.replace("R$", "", regex=False)
+            .str.replace(".", "", regex=False)
+            .str.replace(",", ".", regex=False)
+            .str.strip()
+        )
 
-df["vgv"] = pd.to_numeric(df["vgv"], errors="coerce").fillna(0)
+    df["vgv"] = pd.to_numeric(df["vgv"], errors="coerce").fillna(0)
+    return df
 
-# Título
-st.title("\U0001F4C8 Painel de Empreendimentos")
+df = carregar_dados()
 
-# Filtros principais
-col1, col2, col3, col4 = st.columns(4)
+# Sidebar com filtros
+st.sidebar.header("🎯 Filtros de Busca")
+enderecos = st.sidebar.multiselect("Bairro", sorted(df["endereco"].dropna().unique().tolist()), placeholder="")
+empreendimento = st.sidebar.selectbox("Nome do Empreendimento", [""] + sorted(df["nome"].dropna().unique().tolist()))
+construtora = st.sidebar.selectbox("Construtora", [""] + sorted(df["construtora"].dropna().unique().tolist()))
+segmento = st.sidebar.selectbox("Segmento", [""] + sorted(df["segmento"].dropna().unique().tolist()))
+
+st.sidebar.markdown("### Faixa de VGV")
+vgv_min = st.sidebar.number_input("VGV mínimo (R$)", min_value=0, value=int(df["vgv"].min()), step=50000)
+vgv_max = st.sidebar.number_input("VGV máximo (R$)", min_value=0, value=int(df["vgv"].max()), step=50000)
+
+if st.sidebar.button("🔄 Limpar filtros"):
+    st.experimental_rerun()
+
+# Título principal com logo visível
+col1, col2 = st.columns([5, 1])
 with col1:
-    enderecos = st.multiselect("Endereço", sorted(df["endereco"].dropna().unique().tolist()))
+    st.markdown("### Painel de Empreendimentos")
 with col2:
-    empreendimento = st.text_input("Nome do Empreendimento")
-with col3:
-    construtora = st.selectbox("Construtora", [""] + sorted(df["construtora"].dropna().unique().tolist()))
-with col4:
-    segmento = st.selectbox("Segmento", [""] + sorted(df["segmento"].dropna().unique().tolist()))
-
-# Filtro de VGV manual com 2 campos
-st.markdown("### Filtro por faixa de VGV")
-col_min, col_max = st.columns(2)
-with col_min:
-    vgv_min = st.number_input("VGV mínimo (R$)", min_value=0, value=int(df["vgv"].min()), step=50000)
-with col_max:
-    vgv_max = st.number_input("VGV máximo (R$)", min_value=0, value=int(df["vgv"].max()), step=50000)
+    st.image("logo.png", width=70)
 
 # Aplicar filtros
 filtrado = df.copy()
@@ -81,36 +75,19 @@ if segmento:
     filtrado = filtrado[filtrado["segmento"] == segmento]
 filtrado = filtrado[(filtrado["vgv"] >= vgv_min) & (filtrado["vgv"] <= vgv_max)]
 
-# Mostrar total encontrado
-st.markdown(f"### {len(filtrado)} empreendimentos encontrados")
+# Métricas principais
+col1, _, _ = st.columns(3)
+col1.metric("Empreendimentos", len(filtrado))
+
+st.markdown("---")
 
 # Mostrar resultados
 for _, row in filtrado.iterrows():
-    link_html = f"<a href='{row.link}' target='_blank' title='Ver Book' style='color: #00ccff; text-decoration: none;'>🔗</a>" if pd.notna(row.link) else ""
+    link_html = f"<a href='{row.link}' target='_blank' title='Link externo' style='text-decoration: none; color: #1565c0;'>🔗</a>" if pd.notna(row.link) else ""
     with st.container():
         st.markdown(f"""
-            <div style='background-color: rgba(255,255,255,0.15); padding: 15px; margin-bottom: 10px; border-radius: 10px;'>
-                <h4 style='margin-bottom:5px;'>🏢 <b>{row.nome}</b> {link_html}</h4>
-                <ul style='list-style: none; padding-left: 0;'>
-                    <li><b>Construtora:</b> {row.construtora}</li>
-                    <li><b>Status:</b> {row.status}</li>
-                    <li><b>Segmento:</b> {row.segmento}</li>
-                    <li><b>VGV:</b> R$ {row.vgv:,.2f}</li>
-                    <li><b>Bairro/Cidade:</b> {row.bairro}</li>
-                </ul>
-            </div>
+            <div style='background-color: #ffffff; padding: 10px 15px; margin-bottom: 10px; border-left: 4px solid #0d47a1; border-radius: 6px;'>
+                <strong style='font-size: 16px;'>🏢 {row.nome} {link_html}</strong><br>
+<span style='font-size: 13px;'><b>Construtora:</b> {row.construtora} | <b>Status:</b> {row.status} | <b>Segmento:</b> {row.segmento} | <b>Bairro:</b> {row.bairro}</span>
+</div>
         """, unsafe_allow_html=True)
-
-# Gráfico de VGV por bairro
-if not filtrado.empty:
-    st.markdown("## 📊 Distribuição de VGV por Bairro")
-    grafico_dados = filtrado.groupby("bairro")["vgv"].sum().reset_index()
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.bar(grafico_dados["bairro"], grafico_dados["vgv"])
-    ax.set_title(f"Distribuição de VGV por Bairro (R$ {vgv_min:,} a R$ {vgv_max:,})")
-    ax.set_xlabel("Bairro")
-    ax.set_ylabel("VGV Total (R$)")
-    plt.xticks(rotation=45)
-    plt.grid(axis="y")
-    st.pyplot(fig)
