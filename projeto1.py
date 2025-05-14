@@ -2,8 +2,7 @@ import pandas as pd
 import streamlit as st
 import re
 
-# Estilo visual
-st.markdown('''
+st.markdown("""
 <style>
 body {
     background-color: #f8f9fa;
@@ -16,52 +15,41 @@ h1, h2, h3, h4 {
     color: #0d47a1;
 }
 </style>
-''', unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 @st.cache_data
 def carregar_dados():
     df = pd.read_excel("empreendimentosfortaleza.xlsx", usecols=[
-        "Nome do Empreendimento",        # nome
-        "Construtora",                   # construtora
-        "Status",                        # status
-        "Previsão de Entrega",           # entrega (coluna E)
-        "Segmento",                      # segmento (coluna F)
-        "VGV Médio",                     # vgv (coluna G)
-        "Média  m²",                     # media_m2 (coluna H)
-        "Bairro/Cidade",                 # bairro (coluna J)
-        "Endereço",                      # endereco (coluna K)
-        "Tipologia",                     # tipologia
-        "Atualização google earth "      # link
+        "Nome do Empreendimento", "Construtora", "Status", "Previsão de Entrega",
+        "Segmento", "VGV Médio", "Média  m²", "Bairro/Cidade", "Endereço",
+        "Tipologia", "Atualização google earth "
     ])
 
-    # Mapeando corretamente cada coluna
     df.columns = [
-        "nome", "construtora", "status", "entrega", "segmento", "vgv",
+        "nome", "construtora", "status", "entrega_raw", "segmento", "vgv",
         "media_m2", "bairro", "endereco", "tipologia", "link"
     ]
 
-    # Formatação da data (somente mês/ano)
-    df["entrega"] = pd.to_datetime(df["entrega"], errors="coerce").dt.strftime('%b/%Y')
+    def limpar_vgv(valor):
+        if isinstance(valor, str):
+            valor_limpo = re.sub(r"[^\d,]", "", valor).replace(",", ".")
+            return pd.to_numeric(valor_limpo, errors="coerce")
+        elif isinstance(valor, (int, float)) and valor > 10_000_000:
+            return valor / 10
+        return valor
 
-    # Limpeza e conversão do VGV
-    if df["vgv"].dtype == "object":
-        df["vgv"] = (
-            df["vgv"].astype(str)
-            .str.replace("R$", "", regex=False)
-            .str.replace(".", "", regex=False)
-            .str.replace(",", ".", regex=False)
-            .str.strip()
-        )
-    df["vgv"] = pd.to_numeric(df["vgv"], errors="coerce").fillna(0)
+    df["vgv"] = df["vgv"].apply(limpar_vgv).fillna(0)
 
-    # Padronização do texto de segmento
+    df["entrega_dt"] = pd.to_datetime(df["entrega_raw"], errors="coerce")
+    df["entrega"] = df["entrega_dt"].dt.strftime('%b/%Y')
+    df.loc[df["entrega_dt"].isna(), "entrega"] = "PRONTO"
+
     df["segmento"] = df["segmento"].astype(str).str.strip().str.title()
 
-    # Extrair múltiplas metragens da string
-    def extrair_metragens(metragem_str):
-        if pd.isna(metragem_str):
+    def extrair_metragens(m):
+        if pd.isna(m):
             return []
-        return [float(x) for x in re.findall(r"\d+\.?\d*", str(metragem_str).replace(",", "."))]
+        return [float(x) for x in re.findall(r"\d+\.?\d*", str(m).replace(",", "."))]
 
     df["metragem_lista"] = df["media_m2"].apply(extrair_metragens)
     df["metragem_min"] = df["metragem_lista"].apply(lambda x: min(x) if x else 0)
@@ -71,13 +59,12 @@ def carregar_dados():
 
 df = carregar_dados()
 
-# Sidebar com filtros
+# Filtros
 st.sidebar.header("🎯 Filtros de Busca")
-enderecos = st.sidebar.multiselect("Bairro", sorted(df["bairro"].dropna().unique().tolist()), placeholder="")
-empreendimento = st.sidebar.selectbox("Nome do Empreendimento", [""] + sorted(df["nome"].dropna().unique().tolist()))
-construtora = st.sidebar.selectbox("Construtora", [""] + sorted(df["construtora"].dropna().unique().tolist()))
-segmentos_unicos = df["segmento"].dropna().astype(str).unique().tolist()
-segmento = st.sidebar.selectbox("Segmento", [""] + sorted(segmentos_unicos))
+enderecos = st.sidebar.multiselect("Bairros", sorted(df["bairro"].dropna().unique()))
+empreendimentos = st.sidebar.multiselect("Empreendimentos", sorted(df["nome"].dropna().unique()))
+construtoras = st.sidebar.multiselect("Construtoras", sorted(df["construtora"].dropna().unique()))
+segmentos = st.sidebar.multiselect("Segmentos", sorted(df["segmento"].dropna().unique()))
 
 st.sidebar.markdown("### Faixa de VGV")
 vgv_min = st.sidebar.number_input("VGV mínimo (R$)", min_value=0, value=int(df["vgv"].min()), step=50000)
@@ -87,10 +74,14 @@ st.sidebar.markdown("### Faixa de M²")
 m2_min = st.sidebar.number_input("Mínimo M²", min_value=0, value=int(df["metragem_min"].min()), step=5)
 m2_max = st.sidebar.number_input("Máximo M²", min_value=0, value=int(df["metragem_max"].max()), step=5)
 
-if st.sidebar.button("🔄 Limpar filtros"):
-    st.experimental_rerun()
+st.sidebar.markdown("### Previsão de Entrega (mês/ano ou PRONTO)")
+meses_unicos = sorted(df["entrega"].dropna().unique().tolist())
+meses_escolhidos = st.sidebar.multiselect("Escolha um ou mais:", options=meses_unicos)
 
-# Título e logo
+if st.sidebar.button("🔄 Limpar filtros"):
+    st.rerun()
+
+# Cabeçalho
 col1, col2 = st.columns([5, 1])
 with col1:
     st.markdown("### Painel de Empreendimentos")
@@ -101,45 +92,48 @@ with col2:
 filtrado = df.copy()
 if enderecos:
     filtrado = filtrado[filtrado["bairro"].isin(enderecos)]
-if empreendimento:
-    filtrado = filtrado[filtrado["nome"].str.contains(empreendimento, case=False, na=False)]
-if construtora:
-    filtrado = filtrado[filtrado["construtora"] == construtora]
-if segmento:
-    filtrado = filtrado[filtrado["segmento"] == segmento]
+if empreendimentos:
+    filtrado = filtrado[filtrado["nome"].isin(empreendimentos)]
+if construtoras:
+    filtrado = filtrado[filtrado["construtora"].isin(construtoras)]
+if segmentos:
+    filtrado = filtrado[filtrado["segmento"].isin(segmentos)]
 
 filtrado = filtrado[(filtrado["vgv"] >= vgv_min) & (filtrado["vgv"] <= vgv_max)]
 filtrado = filtrado[(filtrado["metragem_max"] >= m2_min) & (filtrado["metragem_min"] <= m2_max)]
 
-# Métrica principal
+if meses_escolhidos:
+    filtrado = filtrado[filtrado["entrega"].isin(meses_escolhidos)]
+
+# Resultados
 col1, _, _ = st.columns(3)
 col1.metric("Empreendimentos", len(filtrado))
-
 st.markdown("---")
 
-# Exibir cards
-for _, row in filtrado.iterrows():
-    link_html = f"<a href='{row.link}' target='_blank' title='Link externo' style='text-decoration: none; color: #1565c0;'>🔗</a>" if pd.notna(row.link) else ""
-    metragem_exibida = ", ".join(f"{m:.0f}m²" for m in row.metragem_lista) if row.metragem_lista else "N/D"
-    vgv_formatado = f"R$ {row.vgv:,.0f}".replace(",", ".").replace(".", ",", 1)
-    tipologia = row.tipologia if pd.notna(row.tipologia) else "N/D"
-    entrega = row.entrega if pd.notna(row.entrega) else "N/D"
-    segmento = row.segmento if pd.notna(row.segmento) else "N/D"
-
-    with st.container():
-        st.markdown(f"""
-        <div style='background-color: #ffffff; padding: 15px 20px; margin-bottom: 15px; border-left: 6px solid #0d47a1; border-radius: 10px; box-shadow: 0px 1px 5px rgba(0,0,0,0.1);'>
-            <div style='font-size: 18px; font-weight: bold;'>🏢 {row.nome} {link_html}</div>
-            <div style='font-size: 14px; margin-top: 6px;'>
-                <b>Construtora:</b> {row.construtora}<br>
-                <b>Status:</b> {row.status}<br>
-                <b>Segmento:</b> {segmento}<br>
-                <b>Tipologia:</b> {tipologia}<br><br>
-                <b>VGV Médio:</b> {vgv_formatado}<br>
-                <b>Bairro:</b> {row.bairro}<br>
-                <b>Endereço:</b> {row.endereco}<br>
-                <b>Média  m²:</b> {metragem_exibida}<br>
-                <b>Previsão de entrega:</b> {entrega}
+if len(filtrado) > 0:
+    for _, row in filtrado.iterrows():
+        with st.container():
+            st.markdown(f"""
+            <div style='background-color: #ffffff; padding: 20px; margin-bottom: 20px;
+                        border-left: 6px solid #0d47a1; border-radius: 10px;
+                        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07); width: 100%;'>
+                <div style='font-size: 18px; font-weight: bold;'>🏢 {row.nome}</div>
+                <div style='font-size: 14px; margin-top: 8px; line-height: 1.5;'>
+                    <b>Construtora:</b> {row.construtora}<br>
+                    <b>Status:</b> {row.status}<br>
+                    <b>Segmento:</b> {row.segmento}<br>
+                    <b>Tipologia:</b> {row.tipologia}<br>
+                    <b>VGV Médio:</b> R$ {row.vgv:,.0f}<br>
+                    <b>Bairro:</b> {row.bairro}<br>
+                    <b>📍 Localização:</b> {row.endereco}<br>
+                    <b>Média  m²:</b> {", ".join(f"{m:.0f}m²" for m in row.metragem_lista) if row.metragem_lista else "N/D"}<br>
+                    <b>Previsão de entrega:</b> {row.entrega}
+                </div>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
+
+            endereco_url = f"{row.endereco}, {row.bairro}, Fortaleza"
+            mapa_link = f"https://www.google.com/maps/search/?api=1&query={endereco_url.replace(' ', '+')}"
+            st.markdown(f"[📍 Ver no Google Maps]({mapa_link})", unsafe_allow_html=True)
+else:
+    st.info("🔍 Aplique filtros para visualizar os empreendimentos.")
