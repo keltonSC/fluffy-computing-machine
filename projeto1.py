@@ -62,7 +62,7 @@ with col1:
 with col2:
     st.image("logo.png", width=70)
 
-# Caixa de sugestão com formulário interno e resposta em português
+# Caixa de sugestão com formulário interno
 with st.expander("✉️ Caso você encontre algum erro ou tenha alguma sugestão, clique aqui para nos enviar", expanded=False):
     if "form_enviado" not in st.session_state:
         st.session_state.form_enviado = False
@@ -96,16 +96,17 @@ st.sidebar.markdown("### Previsão de Entrega")
 mostrar_prontos = st.sidebar.checkbox("✅ Incluir PRONTOS", value=True)
 usar_data = st.sidebar.checkbox("Filtrar por data específica")
 if usar_data:
-    periodo = st.sidebar.date_input("Período de entrega", [])
+    periodo = st.sidebar.date_input("Período de entrega (dd/mm/aaaa)", [])
     if isinstance(periodo, tuple) and len(periodo) == 2:
         data_inicio, data_fim = periodo
+        st.sidebar.markdown(f"🗓️ Período selecionado: **{data_inicio.strftime('%d/%m/%Y')}** até **{data_fim.strftime('%d/%m/%Y')}**")
     else:
         data_inicio = data_fim = None
 else:
     data_inicio = data_fim = None
 
 if st.sidebar.button("🔄 Limpar filtros"):
-    st.experimental_set_query_params()
+    st.query_params.clear()
     st.rerun()
 
 # Filtros aplicados
@@ -129,7 +130,9 @@ if m2_max > 0:
 if not mostrar_prontos:
     filtrado = filtrado[filtrado["pronto"] == False]
 if data_inicio and data_fim:
-    filtrado = filtrado[(filtrado["entrega_dt"] >= data_inicio) & (filtrado["entrega_dt"] <= data_fim)]
+    inicio_dt = pd.to_datetime(data_inicio)
+    fim_dt = pd.to_datetime(data_fim)
+    filtrado = filtrado[(filtrado["entrega_dt"] >= inicio_dt) & (filtrado["entrega_dt"] <= fim_dt)]
 
 # Métrica
 st.metric("Empreendimentos", len(filtrado))
